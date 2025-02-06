@@ -1,0 +1,115 @@
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.*
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent {
+            HomeScreen()
+        }
+    }
+}
+
+@Composable
+fun HomeScreen() {
+    val navController = rememberNavController()
+    Scaffold(
+        bottomBar = { BottomNavigationBar(navController) }
+    ) { paddingValues ->
+        Box(modifier = Modifier.padding(paddingValues)) {
+            NavigationGraph(navController)
+        }
+    }
+}
+
+@Composable
+fun BottomNavigationBar(navController: NavHostController) {
+    val items = listOf(
+        NavigationItem("Home", Icons.Filled.Home, "home"),
+        NavigationItem("Browse", Icons.Filled.Search, "browse"),
+        NavigationItem("Saved", Icons.Filled.Favorite, "saved"),
+        NavigationItem("Settings", Icons.Filled.Settings, "settings")
+    )
+    BottomNavigation(backgroundColor = Color.White, contentColor = Color.Black) {
+        val currentRoute = currentRoute(navController)
+        items.forEach { item ->
+            BottomNavigationItem(
+                icon = { Icon(item.icon, contentDescription = item.label) },
+                label = { Text(item.label) },
+                selected = currentRoute == item.route,
+                onClick = { navController.navigate(item.route) }
+            )
+        }
+    }
+}
+
+@Composable
+fun NavigationGraph(navController: NavHostController) {
+    NavHost(navController, startDestination = "home") {
+        composable("home") { HomeContent(navController) }
+        composable("browse") { BrowseScreen() }
+        composable("saved") { SavedScreen() }
+        composable("settings") { SettingsScreen() }
+    }
+}
+
+@Composable
+fun HomeContent(navController: NavHostController) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Button(
+            onClick = { /* Navigate to AR scanning screen */ },
+            modifier = Modifier.size(200.dp)
+        ) {
+            Text(text = "Start AR Scan")
+        }
+    }
+}
+
+@Composable
+fun BrowseScreen() {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text("Browse Objects")
+    }
+}
+
+@Composable
+fun SavedScreen() {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text("Saved Designs")
+    }
+}
+
+@Composable
+fun SettingsScreen() {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text("Settings")
+    }
+}
+
+fun currentRoute(navController: NavHostController): String? {
+    return navController.currentBackStackEntry?.destination?.route
+}
+
+data class NavigationItem(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val route: String)
+
+@Preview(showBackground = true)
+@Composable
+fun PreviewHomeScreen() {
+    HomeScreen()
+}
