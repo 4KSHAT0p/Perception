@@ -14,9 +14,11 @@ import androidx.navigation.compose.rememberNavController
 import com.example.perception.ui.navigation.ARScreen
 import com.example.perception.ui.navigation.HomeScreen
 import com.example.perception.ui.navigation.ViewScreen
+import com.example.perception.ui.screens.ARScreen
 import com.example.perception.ui.screens.HomeScreen
 import com.example.perception.ui.screens.ViewScreen
 import com.example.perception.ui.theme.PerceptionTheme
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -34,7 +36,7 @@ class MainActivity : ComponentActivity() {
                         }
                         composable<ARScreen>
                         {
-
+                            ARScreen(navController,"models/car.glb")
                         }
                         composable<ViewScreen>
                         {

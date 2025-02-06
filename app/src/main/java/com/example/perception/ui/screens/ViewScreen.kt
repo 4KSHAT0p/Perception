@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -61,6 +62,7 @@ fun AlItem(alphabet: String, onClick: () -> Unit) {
     }
     Box(
         modifier = Modifier
+            .padding(16.dp)
             .size(60.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(color)
