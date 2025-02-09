@@ -19,5 +19,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "perception"
+rootProject.name = "ARLearner"
 include(":app")
+ 
