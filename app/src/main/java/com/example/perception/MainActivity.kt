@@ -34,7 +34,7 @@ class MainActivity : ComponentActivity() {
                         {
                             HomeScreen(navController)
                         }
-                        composable<ARScreen>
+                        composable<ARScreen>//related to nav route
                         {
                             ARScreen(navController,"models/car.glb")
                         }

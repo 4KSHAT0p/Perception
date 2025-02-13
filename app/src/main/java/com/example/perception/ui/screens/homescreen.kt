@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavController
+import com.example.perception.ui.navigation.ARScreen
 import com.example.perception.ui.navigation.ViewScreen
 
 @Composable
@@ -16,11 +17,8 @@ import com.example.perception.ui.navigation.ViewScreen
 fun HomeScreen(navController: NavController)
 {
     Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Button(onClick = {navController.navigate(ViewScreen)}) {
-            Text(text = "View")
-        }
-        Button(onClick = {}) {
-            Text(text = "Quiz")
+        Button(onClick = {navController.navigate(ARScreen("models/car.glb"))}) {
+            Text(text = "PLACE OBJECTS")
         }
     }
 }
