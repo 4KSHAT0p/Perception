@@ -4,8 +4,18 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.ar" android:required="true"/>
     <uses-feature android:glEsVersion="0x00020000"/>
+    <!-- For Android 13 (API 33) and below -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
+
+    <!-- For Android 13 (API 33) -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+
+    <!-- For Android 14 (API 34) and above -->
+    <!-- This tells Android that your app supports the photo picker -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
     <uses-feature
         android:name="android.hardware.camera"
         android:required="false" />
