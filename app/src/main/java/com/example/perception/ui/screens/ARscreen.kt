@@ -57,6 +57,9 @@ import android.view.ViewGroup
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
@@ -234,16 +237,11 @@ fun ARScreen(navController: NavController, model: String) {
         )
         FloatingActionButton(
             onClick = { captureScreen() },  // Call the capture function when clicked
-            modifier = Modifier.align(Alignment.BottomCenter).padding(20.dp),
-            contentColor = Color.White,
-            containerColor = Color.Transparent
-        ) {
-            Image(
-                painter = painterResource(id = R.drawable.camera),
-                contentDescription = "Capture",
-                modifier = Modifier.size(75.dp).padding(10.dp)
-            )
-        }
+            modifier = Modifier.align(Alignment.BottomCenter).padding(20.dp).size(75.dp).border(3.dp,Color.Gray,
+                CircleShape),
+            containerColor = Color.White,
+            shape = CircleShape
+        ){}
     }
 }
 
@@ -312,5 +310,3 @@ private fun findARSurfaceView(view: View): SurfaceView? {
     // Not found
     return null
 }
-
-

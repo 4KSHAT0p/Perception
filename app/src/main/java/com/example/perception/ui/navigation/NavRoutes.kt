@@ -13,7 +13,7 @@ data object HomeScreen : NavigationDestination {
 @Serializable
 data class ARScreen(val model:String) : NavigationDestination {
     companion object {
-        const val route = "ar/{model}"
+        const val route = "{model}"
     }
 }
 
@@ -21,4 +21,3 @@ data class ARScreen(val model:String) : NavigationDestination {
 data object ViewScreen : NavigationDestination {
     const val route = "view"
 }
-
