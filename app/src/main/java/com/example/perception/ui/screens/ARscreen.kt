@@ -50,13 +50,18 @@ import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import android.util.Log
 import android.view.PixelCopy
 import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
@@ -68,9 +73,21 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.ui.unit.dp
+import androidx.core.graphics.createBitmap
 
 @Composable
-fun ARScreen(navController: NavController, model: String) {
+//fun ARScreen(navController: NavController, model: String) {
+fun ARScreen(
+    navController: NavController,
+    model: String,
+    onBackPressed: () -> Unit = { navController.popBackStack() }
+) {
     val engine = rememberEngine()
     val modelLoader = rememberModelLoader(engine = engine)
     val materialLoader = rememberMaterialLoader(engine = engine)
@@ -83,12 +100,22 @@ fun ARScreen(navController: NavController, model: String) {
     val trackingFailureReason = remember { mutableStateOf<TrackingFailureReason?>(null) }
     val frame = remember { mutableStateOf<Frame?>(null) }
 
-    val context= LocalContext.current
-    val scope= rememberCoroutineScope()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val arViewRef = remember { mutableStateOf<View?>(null) }
-
+//    val modelInstances= remember { mutableStateListOf<ModelInstance>() }
     var captureBitmap: Bitmap? = null
 
+    DisposableEffect(model) {
+        onDispose {
+            modelInstance.clear()
+            childnodes.clear()
+        }
+    }
+
+    BackHandler {
+        onBackPressed()
+    }
     val documentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("image/jpeg")
     ) { uri ->
@@ -124,11 +151,7 @@ fun ARScreen(navController: NavController, model: String) {
                 val surfaceView = findARSurfaceView(currentView)
 
                 // Use PixelCopy for Android 8.0+
-                val bitmap = Bitmap.createBitmap(
-                    currentView.width,
-                    currentView.height,
-                    Bitmap.Config.ARGB_8888
-                )
+                val bitmap = createBitmap(currentView.width, currentView.height)
 
                 val rect = Rect(0, 0, currentView.width, currentView.height)
                 val handler = Handler(Looper.getMainLooper())
@@ -137,10 +160,7 @@ fun ARScreen(navController: NavController, model: String) {
 
                 if (surfaceView != null) {
                     PixelCopy.request(
-                        surfaceView.holder.surface,
-                        rect,
-                        bitmap,
-                        { copyResult ->
+                        surfaceView.holder.surface, rect, bitmap, { copyResult ->
                             if (copyResult == PixelCopy.SUCCESS) {
                                 // Store the bitmap
                                 captureBitmap = bitmap
@@ -153,25 +173,28 @@ fun ARScreen(navController: NavController, model: String) {
                                     scope.launch {
                                         saveImageToGallery(context, bitmap)
                                         withContext(Dispatchers.Main) {
-                                            Toast.makeText(context, "AR Scene captured!", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(
+                                                context, "AR Scene captured!", Toast.LENGTH_SHORT
+                                            ).show()
                                         }
                                     }
                                 }
                             } else {
-                                Toast.makeText(context, "Failed to capture AR scene", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(
+                                    context, "Failed to capture AR scene", Toast.LENGTH_SHORT
+                                ).show()
                             }
-                        },
-                        handler
+                        }, handler
                     )
                 }
             } else {
                 // Fallback for Android 7.1 and below
-                Toast.makeText(context, "Screen capture not supported on this device", Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    context, "Screen capture not supported on this device", Toast.LENGTH_SHORT
+                ).show()
             }
         }
     }
-
-
 
     Box(modifier = Modifier.fillMaxSize()) {
         // This AndroidView captures a reference to the ComposeView containing the AR scene
@@ -224,26 +247,21 @@ fun ARScreen(navController: NavController, model: String) {
                                             childnodes += nodemodel
                                         }
                                     }
-                                }
-                            )
-                        )
+                                }))
                     }
                 }
-            },
-            modifier = Modifier.fillMaxSize()
+            }, modifier = Modifier.fillMaxSize()
         )
         FloatingActionButton(
             onClick = { captureScreen() },  // Call the capture function when clicked
-            modifier = Modifier.align(Alignment.BottomCenter).padding(20.dp),
-            contentColor = Color.White,
-            containerColor = Color.Transparent
-        ) {
-            Image(
-                painter = painterResource(id = R.drawable.camera),
-                contentDescription = "Capture",
-                modifier = Modifier.size(75.dp).padding(10.dp)
-            )
-        }
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(20.dp)
+                .size(75.dp)
+                .border(
+                    3.dp, Color.Gray, CircleShape
+                ), containerColor = Color.White, shape = CircleShape
+        ) {}
     }
 }
 
@@ -261,8 +279,7 @@ private suspend fun saveImageToGallery(context: Context, bitmap: Bitmap) {
                 }
 
                 val uri = context.contentResolver.insert(
-                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                    contentValues
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues
                 )
 
                 uri?.let {
@@ -280,10 +297,7 @@ private suspend fun saveImageToGallery(context: Context, bitmap: Bitmap) {
                 }
 
                 MediaScannerConnection.scanFile(
-                    context,
-                    arrayOf(image.toString()),
-                    arrayOf("image/jpeg"),
-                    null
+                    context, arrayOf(image.toString()), arrayOf("image/jpeg"), null
                 )
             }
         } catch (e: Exception) {
@@ -312,5 +326,3 @@ private fun findARSurfaceView(view: View): SurfaceView? {
     // Not found
     return null
 }
-
-
