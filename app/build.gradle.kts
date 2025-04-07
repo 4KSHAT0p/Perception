@@ -29,14 +29,19 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions {
-        jvmTarget = "11"
+        jvmTarget = "17"
     }
     buildFeatures {
         compose = true
+    }
+
+    packaging {
+        resources.excludes.add("META-INF/INDEX.LIST")
+        resources.excludes.add("META-INF/DEPENDENCIES")
     }
 }
 
@@ -61,8 +66,29 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.arsceneview)
     implementation(libs.coil.compose)
-    implementation("androidx.compose.material:material-icons-extended:1.5.4")
-    implementation("io.coil-kt:coil-compose:2.5.0")
-    implementation("com.google.code.gson:gson:2.10.1")
+    implementation(libs.androidx.material.icons.extended)
+    implementation(libs.gson)
+    implementation(libs.androidx.appcompat)
+
+    // AndroidX Credentials
+
+
+    implementation (libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play.services.auth)
+    implementation(libs.googleid)
+    implementation(libs.androidx.datastore.preferences)
+    implementation (libs.google.api.client.android)
+    implementation(libs.google.api.services.drive)
+    implementation(libs.play.services.auth)
+    implementation(libs.androidx.ui)
+    implementation(libs.androidx.material3)
+    implementation (libs.androidx.ui.tooling.preview)
+    implementation (libs.androidx.runtime)
+    implementation (libs.androidx.activity.compose)
+
+    implementation(libs.androidx.credentials.v150alpha03)
+    implementation(libs.androidx.documentfile)
+
+
 
 }
