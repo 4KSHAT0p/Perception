@@ -1,11 +1,22 @@
 package com.example.perception.ui.screens
-
+import android.os.Handler
+import android.os.Looper
+import android.Manifest
+import android.accounts.Account
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
 import android.provider.OpenableColumns
+import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -20,6 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,15 +41,36 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
 import com.example.perception.R
+import com.google.android.gms.auth.api.identity.AuthorizationRequest
+import com.google.android.gms.auth.api.identity.Identity
+import com.google.android.gms.common.api.Scope
+import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential
+import com.google.api.client.http.FileContent
+import com.google.api.client.http.javanet.NetHttpTransport
+import com.google.api.client.json.gson.GsonFactory
+import com.google.api.services.drive.Drive
+import com.google.api.services.drive.DriveScopes
+import com.google.api.services.drive.model.File as DriveFile
+import com.google.gson.Gson
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.map
 import java.io.File
 import java.io.FileOutputStream
-import com.google.gson.Gson
+import java.io.IOException
+import java.io.OutputStream
+import java.util.*
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -134,13 +167,43 @@ fun ModelItem(
     }
 }
 
+// Google Drive file holder class for uploads
+class GoogleDriveFileHolder {
+    var id: String = ""
+    var name: String = ""
+}
+
+// Progress tracking class
+data class UploadProgressState(
+    val fileName: String = "",
+    val progress: Float = 0f,
+    val isUploading: Boolean = false,
+    val isComplete: Boolean = false,
+    val error: String? = null
+)
 
 @Composable
 fun ViewScreen(navController: NavController, context: Context) {
+    // Constants
+    val APP_NAME = "GLB Uploader"
+    val GLB_MIME_TYPE = "model/gltf-binary"
+    val FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
+    val ROOT_FOLDER = "root"
+    val DRIVE_SPACE = "drive"
+    val GLB_FOLDER_NAME = "GLB Models"
+
     var userModels by remember { mutableStateOf(loadUserModels(context)) }
     var selectedModels by remember { mutableStateOf<Set<String>>(emptySet()) }
     var selectionMode by remember { mutableStateOf(false) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
+    var statusMessage by remember { mutableStateOf("") }
+    var showStatusToast by remember { mutableStateOf(false) }
+
+    // Upload progress state
+    var uploadProgressState by remember { mutableStateOf(UploadProgressState()) }
+    var showUploadProgressDialog by remember { mutableStateOf(false) }
+
+    val coroutineScope = rememberCoroutineScope()
 
     val defaultModels = listOf(
         "models/Lamborghini.glb",
@@ -149,6 +212,13 @@ fun ViewScreen(navController: NavController, context: Context) {
         "models/CornerSofa.glb",
     )
     val availableModels = defaultModels + userModels
+
+    LaunchedEffect(showStatusToast) {
+        if (showStatusToast) {
+            Toast.makeText(context, statusMessage, Toast.LENGTH_SHORT).show()
+            showStatusToast = false
+        }
+    }
 
     val launcher =
         rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -159,6 +229,53 @@ fun ViewScreen(navController: NavController, context: Context) {
                 }
             }
         }
+
+    // Google Drive authorization launcher
+    val authorizationLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            val authorizationResult = Identity.getAuthorizationClient(context)
+                .getAuthorizationResultFromIntent(result.data!!)
+            statusMessage = "Drive permissions granted"
+            showStatusToast = true
+
+            // Now upload the file after permission is granted
+            showUploadProgressDialog = true
+            uploadSelectedModelsToDrive(
+                context,
+                selectedModels.toList(),
+                coroutineScope,
+                onProgress = { fileName, progress, isComplete ->
+                    uploadProgressState = uploadProgressState.copy(
+                        fileName = fileName,
+                        progress = progress,
+                        isUploading = !isComplete,
+                        isComplete = isComplete
+                    )
+                },
+                onError = { errorMessage ->
+                    uploadProgressState = uploadProgressState.copy(
+                        error = errorMessage,
+                        isUploading = false
+                    )
+                },
+                onComplete = { message ->
+                    statusMessage = message
+                    showStatusToast = true
+                    // Close the dialog after a short delay
+                    coroutineScope.launch {
+                        delay(2000)
+                        showUploadProgressDialog = false
+                        uploadProgressState = UploadProgressState()
+                    }
+                }
+            )
+        } else {
+            statusMessage = "Failed to grant Drive permissions"
+            showStatusToast = true
+        }
+    }
 
     if (showDeleteConfirmation) {
         AlertDialog(
@@ -191,14 +308,164 @@ fun ViewScreen(navController: NavController, context: Context) {
         )
     }
 
+    // Upload Progress Dialog
+    if (showUploadProgressDialog) {
+        Dialog(onDismissRequest = {
+            // Don't dismiss while upload is in progress
+            if (!uploadProgressState.isUploading) {
+                showUploadProgressDialog = false
+                uploadProgressState = UploadProgressState()
+            }
+        }) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 8.dp
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = if (uploadProgressState.isComplete) "Upload Complete" else "Uploading to Drive",
+                        style = MaterialTheme.typography.titleLarge
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    if (uploadProgressState.fileName.isNotEmpty()) {
+                        Text(
+                            text = uploadProgressState.fileName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Center
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+
+                    LinearProgressIndicator(
+                        progress = { uploadProgressState.progress },
+                        modifier = Modifier.fillMaxWidth(),
+                        color = if (uploadProgressState.isComplete)
+                            MaterialTheme.colorScheme.primary
+                        else
+                            MaterialTheme.colorScheme.tertiary
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "${(uploadProgressState.progress * 100).roundToInt()}%",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+
+                    if (uploadProgressState.error != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = uploadProgressState.error!!,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+
+                    if (!uploadProgressState.isUploading) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = {
+                                showUploadProgressDialog = false
+                                uploadProgressState = UploadProgressState()
+                            }
+                        ) {
+                            Text("Close")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            TopAppBarContent(selectionMode, selectedModels.size, {
-                selectionMode = false
-                selectedModels = emptySet()
-            }) {
-                if (selectedModels.isNotEmpty()) showDeleteConfirmation = true
-            }
+            TopAppBarContent(
+                selectionMode,
+                selectedModels.size,
+                {
+                    selectionMode = false
+                    selectedModels = emptySet()
+                },
+                {
+                    if (selectedModels.isNotEmpty()) showDeleteConfirmation = true
+                },
+                onUploadToDrive = {
+                    // In the upload to drive button handler
+                    if (selectedModels.isNotEmpty() && !selectedModels.any { it in defaultModels }) {
+                        // Check user email and request drive permissions if needed
+                        coroutineScope.launch {
+                            val email = getUserEmailFromDataStore(context)
+                            if (email != null) {
+                                // Reset the progress state
+                                uploadProgressState = UploadProgressState(isUploading = true)
+
+                                requestDrivePermissions(
+                                    context,
+                                    authorizationLauncher,
+                                    { message ->
+                                        statusMessage = message
+                                        showStatusToast = true
+                                    },
+                                    {
+                                        // This block will be called when permissions are already granted
+                                        showUploadProgressDialog = true
+                                        uploadSelectedModelsToDrive(
+                                            context,
+                                            selectedModels.toList(),
+                                            coroutineScope,
+                                            onProgress = { fileName, progress, isComplete ->
+                                                uploadProgressState = uploadProgressState.copy(
+                                                    fileName = fileName,
+                                                    progress = progress,
+                                                    isUploading = !isComplete,
+                                                    isComplete = isComplete
+                                                )
+                                            },
+                                            onError = { errorMessage ->
+                                                uploadProgressState = uploadProgressState.copy(
+                                                    error = errorMessage,
+                                                    isUploading = false
+                                                )
+                                            },
+                                            onComplete = { message ->
+                                                statusMessage = message
+                                                showStatusToast = true
+                                                // Close the dialog after a short delay
+                                                coroutineScope.launch {
+                                                    delay(2000)
+                                                    showUploadProgressDialog = false
+                                                    uploadProgressState = UploadProgressState()
+                                                }
+                                            }
+                                        )
+                                    }
+                                )
+                            } else {
+                                statusMessage = "Please sign in on the Settings screen first"
+                                showStatusToast = true
+                            }
+                        }
+
+                    } else if (selectedModels.any { it in defaultModels }) {
+                        statusMessage = "Cannot upload default models to Drive"
+                        showStatusToast = true
+                    } else {
+                        statusMessage = "Please select at least one model"
+                        showStatusToast = true
+                    }
+                },
+                showUploadButton = selectedModels.isNotEmpty() && !selectedModels.any { it in defaultModels }
+            )
 
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
@@ -246,13 +513,10 @@ fun ViewScreen(navController: NavController, context: Context) {
                                     if (selectedModels.isEmpty()) selectionMode = false
                                 }
                             } else {
-//                                val encodedModelPath = Uri.encode(model)
-//                                navController.navigate("ar/$encodedModelPath")
                                 val modelsToSend = listOf(model)
                                 val json = Gson().toJson(modelsToSend)
                                 val encodedJson = Uri.encode(json)
                                 navController.navigate("ar/$encodedJson")
-
                             }
                         },
                         selectionMode = selectionMode
@@ -274,7 +538,6 @@ fun ViewScreen(navController: NavController, context: Context) {
             Icon(Icons.Default.Add, contentDescription = "Add Model")
         }
     }
-
 }
 
 @Composable
@@ -282,7 +545,9 @@ fun TopAppBarContent(
     selectionMode: Boolean,
     selectedCount: Int,
     onCancel: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onUploadToDrive: () -> Unit,
+    showUploadButton: Boolean = false
 ) {
     Box(
         modifier = Modifier
@@ -305,15 +570,27 @@ fun TopAppBarContent(
                 Text("Cancel")
             }
 
-            IconButton(
-                onClick = onDelete,
-                modifier = Modifier.align(Alignment.CenterEnd)
+            Row(
+                modifier = Modifier.align(Alignment.CenterEnd),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = "Delete",
-                    tint = MaterialTheme.colorScheme.error
-                )
+                if (showUploadButton) {
+                    IconButton(onClick = onUploadToDrive) {
+                        Icon(
+                            imageVector = Icons.Default.Upload,
+                            contentDescription = "Upload to Drive",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                IconButton(onClick = onDelete) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Delete",
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
             }
         }
     }
@@ -391,3 +668,279 @@ fun saveModelFile(context: Context, uri: Uri): String? {
     }
 }
 
+// Request Drive permissions
+fun requestDrivePermissions(
+    context: Context,
+    launcher: ActivityResultLauncher<IntentSenderRequest>,
+    callback: (String) -> Unit,
+    onPermissionsAlreadyGranted: () -> Unit
+) {
+    val requestedScopes = listOf(Scope(DriveScopes.DRIVE_FILE))
+    val authorizationRequest = AuthorizationRequest.builder()
+        .setRequestedScopes(requestedScopes)
+        .build()
+
+    Identity.getAuthorizationClient(context)
+        .authorize(authorizationRequest)
+        .addOnSuccessListener { result ->
+            if (result.hasResolution()) {
+                val pendingIntent = result.pendingIntent
+                pendingIntent?.intentSender?.let { intentSender ->
+                    val intentSenderRequest = IntentSenderRequest.Builder(intentSender).build()
+                    launcher.launch(intentSenderRequest)
+                }
+            } else {
+                callback("Drive permissions already granted")
+                onPermissionsAlreadyGranted()  // Call this when permissions are already granted
+            }
+        }
+        .addOnFailureListener { e ->
+            callback("Failed to request permissions: ${e.message}")
+        }
+}
+
+// Get user email from DataStore
+suspend fun getUserEmailFromDataStore(context: Context): String? {
+    return context.userPreferencesDataStore.data
+        .map { preferences -> preferences[androidx.datastore.preferences.core.stringPreferencesKey("user_email")] }
+        .firstOrNull()
+}
+
+// Upload selected models to Drive with progress tracking
+// Upload selected models to Drive with progress tracking
+// Upload selected models to Drive with progress tracking
+fun uploadSelectedModelsToDrive(
+    context: Context,
+    selectedModels: List<String>,
+    coroutineScope: CoroutineScope,
+    onProgress: (fileName: String, progress: Float, isComplete: Boolean) -> Unit,
+    onError: (String) -> Unit,
+    onComplete: (String) -> Unit
+) {
+    if (selectedModels.isEmpty()) {
+        onError("No models selected for upload")
+        return
+    }
+
+    coroutineScope.launch {
+        val email = getUserEmailFromDataStore(context)
+        if (email != null) {
+            try {
+                var overallSuccess = true
+                var totalFiles = selectedModels.size
+                var completedFiles = 0
+
+                for (modelPath in selectedModels) {
+                    val file = File(modelPath)
+                    if (file.exists() && file.isFile) {
+                        onProgress(file.name, completedFiles.toFloat() / totalFiles, false)
+
+                        // Define a progress handler that doesn't use withContext
+                        val progressHandler = object {
+                            fun updateProgress(progress: Float) {
+                                val fileWeight = 1.0f / totalFiles
+                                val overallProgress = completedFiles.toFloat() / totalFiles + (progress * fileWeight)
+                                coroutineScope.launch(Dispatchers.Main) {
+                                    onProgress(file.name, overallProgress, false)
+                                }
+                            }
+                        }
+
+                        // Call the suspend function with a normal method reference
+                        val uploadResult = uploadFileToDrive(
+                            context,
+                            email,
+                            file,
+                            "GLB Uploader",
+                            "model/gltf-binary",
+                            "GLB Models",
+                            "application/vnd.google-apps.folder",
+                            "root",
+                            "drive",
+                            progressHandler::updateProgress
+                        )
+
+                        completedFiles++
+
+                        if (!uploadResult) {
+                            overallSuccess = false
+                        }
+                    }
+                }
+
+                // Final callback after all uploads complete
+                withContext(Dispatchers.Main) {
+                    onProgress("", 1.0f, true)
+
+                    if (overallSuccess) {
+                        onComplete("Successfully uploaded ${selectedModels.size} model(s) to Drive")
+                    } else {
+                        onComplete("Some files failed to upload. Please try again.")
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onError("Upload failed: ${e.message}")
+                }
+            }
+        } else {
+            withContext(Dispatchers.Main) {
+                onError("Please sign in on the Settings screen first")
+            }
+        }
+    }
+}
+
+// Custom OutputStream for tracking progress
+class ProgressOutputStream(
+    private val outputStream: OutputStream,
+    private val expectedSize: Long,
+    private val onProgress: (Float) -> Unit
+) : OutputStream() {
+    private var bytesWritten: Long = 0
+
+    override fun write(b: Int) {
+        outputStream.write(b)
+        bytesWritten++
+        updateProgress()
+    }
+
+    override fun write(b: ByteArray) {
+        outputStream.write(b)
+        bytesWritten += b.size
+        updateProgress()
+    }
+
+    override fun write(b: ByteArray, off: Int, len: Int) {
+        outputStream.write(b, off, len)
+        bytesWritten += len
+        updateProgress()
+    }
+
+    override fun flush() {
+        outputStream.flush()
+    }
+
+    override fun close() {
+        outputStream.close()
+    }
+
+    private fun updateProgress() {
+        val progress = bytesWritten.toFloat() / expectedSize
+        onProgress(if (progress > 1f) 1f else progress)
+    }
+}
+
+// Upload file to Drive with progress tracking
+// Upload file to Drive with progress tracking
+private suspend fun uploadFileToDrive(
+    context: Context,
+    email: String,
+    file: File,
+    appName: String,
+    glbMimeType: String,
+    folderName: String,
+    folderMimeType: String,
+    rootFolder: String,
+    driveSpace: String,
+    onProgress: (Float) -> Unit
+): Boolean {
+    return withContext(Dispatchers.IO) {
+        try {
+            // Set up Google Drive credential
+            val credential = GoogleAccountCredential.usingOAuth2(
+                context,
+                Collections.singleton(DriveScopes.DRIVE_FILE)
+            )
+            credential.selectedAccount = Account(email, "com.google")
+
+            // Build Drive service
+            val driveService = Drive.Builder(
+                NetHttpTransport(),
+                GsonFactory(),
+                credential
+            ).setApplicationName(appName).build()
+
+            // Create GLB models folder
+            val folder = createOrGetFolder(driveService, folderName, folderMimeType, rootFolder, driveSpace)
+
+            if (folder != null) {
+                val parents = folder.id.let { listOf(it) }
+                val metadata = DriveFile()
+                    .setParents(parents)
+                    .setMimeType(glbMimeType)
+                    .setName(file.name)
+
+                // Create a media content
+                val fileContent = FileContent(glbMimeType, file)
+
+                // Create a request that supports progress tracking
+                val request = driveService.files().create(metadata, fileContent)
+
+                // Configure the media upload to enable tracking
+                request.mediaHttpUploader.isDirectUploadEnabled = false
+
+                // Use a simple class to track progress without using coroutines
+                val handler = android.os.Handler(android.os.Looper.getMainLooper())
+
+                request.mediaHttpUploader.setProgressListener { uploader ->
+                    val progress = uploader.progress.toFloat()  // Convert Double to Float
+                    // Post to main thread using Handler instead of withContext
+                    handler.post {
+                        onProgress(progress)
+                    }
+                }
+
+                // Set fields and execute
+                request.fields = "id, name, size, modifiedTime"
+                request.execute()
+                true
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            Log.e("ViewScreen", "Error uploading GLB file", e)
+            false
+        }
+    }
+}
+
+// Create or get folder in Drive
+private suspend fun createOrGetFolder(
+    driveService: Drive,
+    folderName: String,
+    folderMimeType: String,
+    rootFolder: String,
+    driveSpace: String
+): GoogleDriveFileHolder? {
+    return withContext(Dispatchers.IO) {
+        try {
+            // Check if folder already exists
+            val result = driveService.files().list()
+                .setQ("mimeType='$folderMimeType' and name='$folderName' and trashed=false")
+                .setSpaces(driveSpace)
+                .setFields("files(id, name)")
+                .execute()
+            if (result.files.isNotEmpty()) {
+                // Folder exists, return it
+                val folder = GoogleDriveFileHolder()
+                folder.id = result.files[0].id
+                folder.name = result.files[0].name
+                return@withContext folder
+            }
+            // Create new folder
+            val metadata = DriveFile()
+                .setParents(listOf(rootFolder))
+                .setMimeType(folderMimeType)
+                .setName(folderName)
+            val folder = driveService.files().create(metadata).execute()
+            val fileHolder = GoogleDriveFileHolder()
+            fileHolder.id = folder.id
+            fileHolder.name = folder.name
+            return@withContext fileHolder
+        } catch (e: Exception) {
+            Log.e("ViewScreen", "Error creating/getting folder", e)
+            return@withContext null
+        }
+    }
+}

@@ -1,5 +1,7 @@
 package com.example.perception.ui.screens
 
+import android.os.Handler
+import android.os.Looper
 import android.Manifest
 import android.accounts.Account
 import android.app.Activity
@@ -9,13 +11,11 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
-import android.provider.OpenableColumns
 import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.ActivityResultLauncher
-import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -41,10 +41,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.documentfile.provider.DocumentFile
-import androidx.lifecycle.lifecycleScope
-import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.Identity
-import com.google.android.gms.common.api.Scope
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential
@@ -52,27 +49,29 @@ import com.google.api.client.http.javanet.NetHttpTransport
 import com.google.api.client.json.gson.GsonFactory
 import com.google.api.services.drive.Drive
 import com.google.api.services.drive.DriveScopes
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
+import java.io.IOException
+import java.io.OutputStream
 import java.security.MessageDigest
 import java.util.*
+import kotlin.math.roundToInt
+import com.google.api.services.drive.model.File as DriveFile
 
 // DataStore extension function
 val Context.userPreferencesDataStore: DataStore<Preferences> by preferencesDataStore(
     name = "glb_upload_user"
 )
 
-// Google Drive file holder class for uploads
-class GoogleDriveFileHolder {
-    var id: String = ""
-    var name: String = ""
-}
+// Download progress state
+data class DownloadProgressState(
+    val fileName: String = "",
+    val progress: Float = 0f,
+    val isDownloading: Boolean = false,
+    val isComplete: Boolean = false,
+    val error: String? = null
+)
 
 @Composable
 fun SettingsScreen(
@@ -88,7 +87,6 @@ fun SettingsScreen(
     val DRIVE_SPACE = "drive"
     val GLB_FOLDER_NAME = "GLB Models"
     val EMAIL_KEY = "user_email"
-    val STORAGE_PERMISSION_CODE = 100
     val FIELDS = "nextPageToken, files(id, name, size, modifiedTime)"
 
     // Context and scope
@@ -98,11 +96,13 @@ fun SettingsScreen(
     // States
     var statusMessage by remember { mutableStateOf("Please sign in to continue") }
     var isLoggedIn by remember { mutableStateOf(false) }
-    var selectedGlbFile by remember { mutableStateOf<Uri?>(null) }
-    var selectedFileName by remember { mutableStateOf("") }
-    var driveGlbFiles by remember { mutableStateOf<List<com.google.api.services.drive.model.File>>(emptyList()) }
+    var driveGlbFiles by remember { mutableStateOf<List<DriveFile>>(emptyList()) }
     var showFileSelectionDialog by remember { mutableStateOf(false) }
     var downloadLocation by remember { mutableStateOf<Uri?>(null) }
+
+    // Download progress tracking
+    var downloadProgressState by remember { mutableStateOf(DownloadProgressState()) }
+    var showDownloadProgressDialog by remember { mutableStateOf(false) }
 
     // Check login status on first load
     LaunchedEffect(Unit) {
@@ -112,23 +112,6 @@ fun SettingsScreen(
             isLoggedIn = true
         }
     }
-
-    // File picker launcher
-    val glbFilePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri ->
-        uri?.let {
-            val fileName = getFleNameFromUri(context, it)
-            if (fileName.endsWith(".glb", ignoreCase = true)) {
-                selectedGlbFile = it
-                selectedFileName = fileName
-                statusMessage = "Selected: $fileName"
-            } else {
-                statusMessage = "Please select a valid GLB file (.glb)"
-            }
-        }
-    }
-
 
     // Directory picker launcher
     val directoryPicker = rememberLauncherForActivityResult(
@@ -158,19 +141,6 @@ fun SettingsScreen(
         }
     }
 
-    // Google Drive authorization launcher
-    val authorizationLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartIntentSenderForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-            val authorizationResult = Identity.getAuthorizationClient(context)
-                .getAuthorizationResultFromIntent(result.data!!)
-            statusMessage = "Drive permissions granted"
-        } else {
-            statusMessage = "Failed to grant Drive permissions"
-        }
-    }
-
     // Google sign-in
     val signInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -179,238 +149,126 @@ fun SettingsScreen(
     }
 
     // UI Layout
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = "GLB File Uploader",
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(bottom = 8.dp)
-        )
-
-        Text(
-            text = statusMessage,
-            style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(bottom = 16.dp)
-        )
-
-        // Sign in button
-        Button(
-            onClick = {
-                coroutineScope.launch {
-                    performGoogleLogin(context) { success, message ->
-                        if (success) {
-                            isLoggedIn = true
-                            statusMessage = message
-                        } else {
-                            statusMessage = message
-                        }
-                    }
-                }
-            },
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            enabled = !isLoggedIn,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-            )
+                .fillMaxSize()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Sign In with Google")
-        }
-
-        // Request Drive permissions
-        Button(
-            onClick = {
-                requestDrivePermissions(context, authorizationLauncher) { message ->
-                    statusMessage = message
-                }
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            enabled = isLoggedIn,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            Text(
+                text = "Settings",
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.padding(bottom = 8.dp)
             )
-        ) {
-            Text("Request Drive Permissions")
-        }
 
-        // Select GLB file
-        Button(
-            onClick = { glbFilePicker.launch("*/*") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            enabled = isLoggedIn,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            Text(
+                text = statusMessage,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(bottom = 16.dp)
             )
-        ) {
-            Text("Select GLB File")
-        }
 
-        // Upload GLB file
-        Button(
-            onClick = {
-                if (selectedGlbFile == null) {
-                    statusMessage = "Please select a GLB file first"
-                    return@Button
-                }
-
-                coroutineScope.launch {
-                    val email = getUserEmail(context)
-                    if (email != null) {
-                        selectedGlbFile?.let { uri ->
-                            statusMessage = "Uploading $selectedFileName..."
-                            uploadGlbFile(
-                                context,
-                                email,
-                                uri,
-                                selectedFileName,
-                                GLB_MIME_TYPE,
-                                GLB_FOLDER_NAME,
-                                APP_NAME,
-                                FOLDER_MIME_TYPE,
-                                ROOT_FOLDER,
-                                DRIVE_SPACE
-                            ) { success, message ->
+            // Sign in button
+            Button(
+                onClick = {
+                    coroutineScope.launch {
+                        performGoogleLogin(context) { success, message ->
+                            if (success) {
+                                isLoggedIn = true
+                                statusMessage = message
+                            } else {
                                 statusMessage = message
                             }
                         }
-                    } else {
-                        statusMessage = "Please sign in first"
                     }
-                }
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            enabled = isLoggedIn,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-        ) {
-            Text("Upload GLB File")
-        }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                enabled = !isLoggedIn,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            ) {
+                Text("Sign In with Google")
+            }
 
-        // List GLB files
-        Button(
-            onClick = {
-                coroutineScope.launch {
-                    val email = getUserEmail(context)
-                    if (email != null) {
-                        statusMessage = "Fetching GLB files..."
-                        listGlbFiles(
-                            context,
-                            email,
-                            APP_NAME,
-                            GLB_MIME_TYPE,
-                            DRIVE_SPACE,
-                            FIELDS
-                        ) { success, message, files ->
-                            statusMessage = message
-                            if (success) {
-                                driveGlbFiles = files
+            // Download GLB file
+            Button(
+                onClick = {
+                    coroutineScope.launch {
+                        val email = getUserEmail(context)
+                        if (email != null) {
+                            statusMessage = "Fetching available GLB files..."
+                            listGlbFiles(
+                                context,
+                                email,
+                                APP_NAME,
+                                GLB_MIME_TYPE,
+                                DRIVE_SPACE,
+                                FIELDS
+                            ) { success, message, files ->
+                                if (success && files.isNotEmpty()) {
+                                    driveGlbFiles = files
+                                    directoryPicker.launch(null)
+                                } else {
+                                    statusMessage = "No GLB files found in your Drive"
+                                }
                             }
+                        } else {
+                            statusMessage = "Please sign in first"
                         }
-                    } else {
-                        statusMessage = "Please sign in first"
                     }
-                }
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            enabled = isLoggedIn,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-        ) {
-            Text("List GLB Files")
-        }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                enabled = isLoggedIn,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            ) {
+                Text("Download GLB from Drive")
+            }
 
-        // Download GLB file
-        Button(
-            onClick = {
-                coroutineScope.launch {
-                    val email = getUserEmail(context)
-                    if (email != null) {
-                        statusMessage = "Fetching available GLB files..."
-                        listGlbFiles(
-                            context,
-                            email,
-                            APP_NAME,
-                            GLB_MIME_TYPE,
-                            DRIVE_SPACE,
-                            FIELDS
-                        ) { success, message, files ->
-                            if (success && files.isNotEmpty()) {
-                                driveGlbFiles = files
-                                directoryPicker.launch(null)
-                            } else {
-                                statusMessage = "No GLB files found in your Drive"
-                            }
-                        }
-                    } else {
-                        statusMessage = "Please sign in first"
+            // Sign out button
+            Button(
+                onClick = {
+                    coroutineScope.launch {
+                        performLogout(context)
+                        isLoggedIn = false
+                        statusMessage = "Signed out"
                     }
-                }
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            enabled = isLoggedIn,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-        ) {
-            Text("Download GLB from Drive")
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                enabled = isLoggedIn,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            ) {
+                Text("Sign Out")
+            }
         }
 
-        // Sign out button
-        Button(
-            onClick = {
-                coroutineScope.launch {
-                    performLogout(context)
-                    isLoggedIn = false
-                    selectedGlbFile = null
-                    selectedFileName = ""
-                    statusMessage = "Signed out"
-                }
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            enabled = isLoggedIn,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-        ) {
-            Text("Sign Out")
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Theme switch section
+        // Dark Mode Toggle - positioned just above where the profile button would be
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(bottom = 80.dp, end = 16.dp),  // Positioned above where a bottom navigation item would be
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("Dark Mode", style = MaterialTheme.typography.bodyLarge)
-            Spacer(modifier = Modifier.weight(1f))
+            Text(
+                text = "Dark Mode",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Switch(
                 checked = darkMode,
                 onCheckedChange = { onThemeChange(it) },
@@ -432,6 +290,13 @@ fun SettingsScreen(
                     driveGlbFiles.forEach { file ->
                         Button(
                             onClick = {
+                                showFileSelectionDialog = false
+                                showDownloadProgressDialog = true
+                                downloadProgressState = DownloadProgressState(
+                                    fileName = file.name,
+                                    isDownloading = true
+                                )
+
                                 coroutineScope.launch {
                                     val email = getUserEmail(context)
                                     if (email != null) {
@@ -443,13 +308,31 @@ fun SettingsScreen(
                                             downloadLocation!!,
                                             GLB_MIME_TYPE,
                                             APP_NAME,
-                                            storagePermissionLauncher
+                                            storagePermissionLauncher,
+                                            onProgress = { progress ->
+                                                downloadProgressState = downloadProgressState.copy(
+                                                    progress = progress
+                                                )
+                                            }
                                         ) { success, message ->
                                             statusMessage = message
+                                            downloadProgressState = downloadProgressState.copy(
+                                                isDownloading = false,
+                                                isComplete = success,
+                                                error = if (!success) message else null,
+                                                progress = if (success) 1f else downloadProgressState.progress
+                                            )
+
+                                            // Close progress dialog after a delay if successful
+                                            if (success) {
+                                                coroutineScope.launch {
+                                                    delay(2000)
+                                                    showDownloadProgressDialog = false
+                                                }
+                                            }
                                         }
                                     }
                                 }
-                                showFileSelectionDialog = false
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -468,23 +351,85 @@ fun SettingsScreen(
             }
         )
     }
-}
 
-// Helper functions
+    // Download Progress Dialog
+    if (showDownloadProgressDialog) {
+        Dialog(onDismissRequest = {
+            // Don't dismiss while download is in progress
+            if (!downloadProgressState.isDownloading) {
+                showDownloadProgressDialog = false
+                downloadProgressState = DownloadProgressState()
+            }
+        }) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 8.dp
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = if (downloadProgressState.isComplete) "Download Complete" else "Downloading from Drive",
+                        style = MaterialTheme.typography.titleLarge
+                    )
 
-// Get file name from URI
-private fun getFleNameFromUri(context: Context, uri: Uri): String {
-    var fileName = "unknown_file.glb"
-    context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-        if (cursor.moveToFirst()) {
-            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-            if (nameIndex != -1) {
-                fileName = cursor.getString(nameIndex)
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = downloadProgressState.fileName,
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    LinearProgressIndicator(
+                        progress = { downloadProgressState.progress },
+                        modifier = Modifier.fillMaxWidth(),
+                        color = if (downloadProgressState.isComplete)
+                            MaterialTheme.colorScheme.primary
+                        else
+                            MaterialTheme.colorScheme.tertiary
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "${(downloadProgressState.progress * 100).roundToInt()}%",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+
+                    if (downloadProgressState.error != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = downloadProgressState.error!!,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+
+                    if (!downloadProgressState.isDownloading) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = {
+                                showDownloadProgressDialog = false
+                                downloadProgressState = DownloadProgressState()
+                            }
+                        ) {
+                            Text("Close")
+                        }
+                    }
+                }
             }
         }
     }
-    return fileName
 }
+// Helper functions
 
 // Check for storage permission
 private fun hasStoragePermission(context: Context): Boolean {
@@ -616,195 +561,15 @@ private suspend fun performLogout(context: Context) {
     credentialManager.clearCredentialState(ClearCredentialStateRequest())
 }
 
-// Request Drive permissions
-private fun requestDrivePermissions(
-    context: Context,
-    launcher: ActivityResultLauncher<IntentSenderRequest>,
-    callback: (String) -> Unit
-) {
-    val requestedScopes = listOf(Scope(DriveScopes.DRIVE_FILE))
-    val authorizationRequest = AuthorizationRequest.builder()
-        .setRequestedScopes(requestedScopes)
-        .build()
-
-    Identity.getAuthorizationClient(context)
-        .authorize(authorizationRequest)
-        .addOnSuccessListener { result ->
-            if (result.hasResolution()) {
-                val pendingIntent = result.pendingIntent
-                pendingIntent?.intentSender?.let { intentSender ->
-                    val intentSenderRequest = IntentSenderRequest.Builder(intentSender).build()
-                    launcher.launch(intentSenderRequest)
-                }
-            } else {
-                callback("Drive permissions already granted")
-            }
-        }
-        .addOnFailureListener { e ->
-            callback("Failed to request permissions: ${e.message}")
-        }
-}
-
-// Create temporary file from URI
-private fun createTempFileFromUri(
-    context: Context,
-    uri: Uri,
-    fileName: String
-): File? {
-    try {
-        val tempDir = File(context.cacheDir, "glb_uploads")
-        if (!tempDir.exists()) {
-            tempDir.mkdirs()
-        }
-        val tempFile = File(tempDir, fileName)
-        context.contentResolver.openInputStream(uri)?.use { inputStream ->
-            FileOutputStream(tempFile).use { outputStream ->
-                inputStream.copyTo(outputStream)
-            }
-        }
-        return tempFile
-    } catch (e: Exception) {
-        Log.e("SettingsScreen", "Error creating temp file", e)
-        return null
-    }
-}
-
-// Create or get folder in Drive
-private suspend fun createOrGetFolder(
-    driveService: Drive,
-    folderName: String,
-    folderMimeType: String,
-    rootFolder: String,
-    driveSpace: String
-): GoogleDriveFileHolder? {
-    return withContext(Dispatchers.IO) {
-        try {
-            // Check if folder already exists
-            val result = driveService.files().list()
-                .setQ("mimeType='$folderMimeType' and name='$folderName' and trashed=false")
-                .setSpaces(driveSpace)
-                .setFields("files(id, name)")
-                .execute()
-            if (result.files.isNotEmpty()) {
-                // Folder exists, return it
-                val folder = GoogleDriveFileHolder()
-                folder.id = result.files[0].id
-                folder.name = result.files[0].name
-                return@withContext folder
-            }
-            // Create new folder
-            val metadata = com.google.api.services.drive.model.File()
-                .setParents(listOf(rootFolder))
-                .setMimeType(folderMimeType)
-                .setName(folderName)
-            val folder = driveService.files().create(metadata).execute()
-            val fileHolder = GoogleDriveFileHolder()
-            fileHolder.id = folder.id
-            fileHolder.name = folder.name
-            return@withContext fileHolder
-        } catch (e: Exception) {
-            Log.e("SettingsScreen", "Error creating/getting folder", e)
-            return@withContext null
-        }
-    }
-}
-
-// Upload file to Drive
-private suspend fun uploadFileToDrive(
-    driveService: Drive,
-    file: File,
-    mimeType: String,
-    folderId: String?,
-    rootFolder: String
-): GoogleDriveFileHolder {
-    return withContext(Dispatchers.IO) {
-        val parents = folderId?.let { listOf(it) } ?: listOf(rootFolder)
-        val metadata = com.google.api.services.drive.model.File()
-            .setParents(parents)
-            .setMimeType(mimeType)
-            .setName(file.name)
-        val fileContent = com.google.api.client.http.FileContent(mimeType, file)
-        val uploadedFile = driveService.files().create(metadata, fileContent)
-            .setFields("id, name, size, modifiedTime")
-            .execute()
-        val result = GoogleDriveFileHolder()
-        result.id = uploadedFile.id
-        result.name = uploadedFile.name
-        return@withContext result
-    }
-}
-
-// Upload GLB file
-private suspend fun uploadGlbFile(
-    context: Context,
-    email: String,
-    uri: Uri,
-    fileName: String,
-    glbMimeType: String,
-    glbFolderName: String,
-    appName: String,
-    folderMimeType: String,
-    rootFolder: String,
-    driveSpace: String,
-    callback: (Boolean, String) -> Unit
-) {
-    withContext(Dispatchers.IO) {
-        try {
-            // Set up Google Drive credential
-            val credential = GoogleAccountCredential.usingOAuth2(
-                context,
-                Collections.singleton(DriveScopes.DRIVE_FILE)
-            )
-            credential.selectedAccount = Account(email, "com.google")
-
-            // Build Drive service
-            val driveService = Drive.Builder(
-                NetHttpTransport(),
-                GsonFactory(),
-                credential
-            ).setApplicationName(appName).build()
-
-            // Create GLB models folder
-            val folderJob = async {
-                createOrGetFolder(driveService, glbFolderName, folderMimeType, rootFolder, driveSpace)
-            }
-            val folder = folderJob.await()
-
-            // Create temp file from URI
-            val tempFile = createTempFileFromUri(context, uri, fileName)
-            if (tempFile != null) {
-                // Upload file to Drive
-                val uploadResult = withContext(Dispatchers.IO) {
-                    uploadFileToDrive(driveService, tempFile, glbMimeType, folder?.id, rootFolder)
-                }
-                // Clean up temp file
-                tempFile.delete()
-                withContext(Dispatchers.Main) {
-                    callback(true, "Successfully uploaded: ${uploadResult.name}")
-                }
-            } else {
-                withContext(Dispatchers.Main) {
-                    callback(false, "Failed to process file")
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("SettingsScreen", "Error uploading GLB file", e)
-            withContext(Dispatchers.Main) {
-                callback(false, "Upload failed: ${e.message}")
-            }
-        }
-    }
-}
-
 // Get GLB files from Drive
 private suspend fun getGlbFilesFromDrive(
     driveService: Drive,
     glbMimeType: String,
     driveSpace: String,
     fields: String
-): List<com.google.api.services.drive.model.File> {
+): List<DriveFile> {
     return withContext(Dispatchers.IO) {
-        val result = mutableListOf<com.google.api.services.drive.model.File>()
+        val result = mutableListOf<DriveFile>()
         var pageToken: String? = null
         do {
             val fileList = driveService.files().list()
@@ -828,7 +593,7 @@ private suspend fun listGlbFiles(
     glbMimeType: String,
     driveSpace: String,
     fields: String,
-    callback: (Boolean, String, List<com.google.api.services.drive.model.File>) -> Unit
+    callback: (Boolean, String, List<DriveFile>) -> Unit
 ) {
     withContext(Dispatchers.IO) {
         try {
@@ -865,6 +630,51 @@ private suspend fun listGlbFiles(
     }
 }
 
+// Custom OutputStream for tracking download progress
+// Custom OutputStream for tracking download progress
+class ProgressDownloadOutputStream(
+    private val outputStream: OutputStream,
+    private val fileSize: Long,
+    private val onProgress: (Float) -> Unit
+) : OutputStream() {
+    private var bytesWritten: Long = 0
+    private val handler = Handler(Looper.getMainLooper())
+
+    override fun write(b: Int) {
+        outputStream.write(b)
+        bytesWritten++
+        updateProgress()
+    }
+
+    override fun write(b: ByteArray) {
+        outputStream.write(b)
+        bytesWritten += b.size
+        updateProgress()
+    }
+
+    override fun write(b: ByteArray, off: Int, len: Int) {
+        outputStream.write(b, off, len)
+        bytesWritten += len
+        updateProgress()
+    }
+
+    override fun flush() {
+        outputStream.flush()
+    }
+
+    override fun close() {
+        outputStream.close()
+    }
+
+    private fun updateProgress() {
+        val progress = bytesWritten.toFloat() / fileSize
+        // Use handler to post to main thread instead of withContext
+        handler.post {
+            onProgress(if (progress > 1f) 1f else progress)
+        }
+    }
+}
+
 private suspend fun downloadGlbFile(
     context: Context,
     email: String,
@@ -874,6 +684,7 @@ private suspend fun downloadGlbFile(
     glbMimeType: String,
     appName: String,
     storagePermissionLauncher: ActivityResultLauncher<Intent>,
+    onProgress: (Float) -> Unit,
     callback: (Boolean, String) -> Unit
 ) {
     withContext(Dispatchers.IO) {
@@ -926,19 +737,40 @@ private suspend fun downloadGlbFile(
                 credential
             ).setApplicationName(appName).build()
 
+            // Get file size first for progress tracking
+            val fileMetadata = driveService.files().get(fileId)
+                .setFields("size")
+                .execute()
+            val fileSize = fileMetadata.getSize() ?: 0
+
             // Create output file
             val documentFile = DocumentFile.fromTreeUri(context, downloadLocation)
             val outputFile = documentFile?.createFile(glbMimeType, fileName)
 
             if (outputFile != null) {
-                context.contentResolver.openOutputStream(outputFile.uri)?.use { outputStream ->
-                    // Download file from Drive
-                    driveService.files().get(fileId)
-                        .executeMediaAndDownloadTo(outputStream)
-                }
+                // Use a custom OutputStream wrapper to track progress
+                try {
+                    val originalStream = context.contentResolver.openOutputStream(outputFile.uri)
+                    if (originalStream != null) {
+                        // Use the updated ProgressDownloadOutputStream that uses Handler
+                        val progressStream = ProgressDownloadOutputStream(originalStream, fileSize, onProgress)
 
-                withContext(Dispatchers.Main) {
-                    callback(true, "Successfully downloaded $fileName")
+                        // Download file from Drive with progress tracking
+                        val request = driveService.files().get(fileId)
+                        request.executeMediaAndDownloadTo(progressStream)
+
+                        withContext(Dispatchers.Main) {
+                            callback(true, "Successfully downloaded $fileName")
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            callback(false, "Failed to open output stream")
+                        }
+                    }
+                } catch (e: IOException) {
+                    withContext(Dispatchers.Main) {
+                        callback(false, "Download failed: ${e.message}")
+                    }
                 }
             } else {
                 withContext(Dispatchers.Main) {
