@@ -34,7 +34,7 @@ fun NavigationGraph(
             NewHomeScreen(navController)
         }
         composable("anchor") { ViewScreen(navController, context = context) }
-        composable("stores") { }
+        composable("stores") {StoreScreen() }
         composable("profile") { SettingsScreen(darkMode, onThemeChange) }
 //        composable(
 //            route = ARScreen.route,  // Now this will be "ar/{model}"

@@ -1,4 +1,5 @@
 package com.example.perception.ui.screens
+
 import android.os.Handler
 import android.os.Looper
 import android.Manifest
@@ -18,6 +19,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -32,6 +40,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -41,16 +51,16 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
 import com.example.perception.R
+import com.example.perception.utils.ModelRepository
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.common.api.Scope
@@ -71,6 +81,21 @@ import java.io.IOException
 import java.io.OutputStream
 import java.util.*
 import kotlin.math.roundToInt
+
+// Google Drive file holder class for uploads
+class GoogleDriveFileHolder {
+    var id: String = ""
+    var name: String = ""
+}
+
+// Progress tracking class
+data class UploadProgressState(
+    val fileName: String = "",
+    val progress: Float = 0f,
+    val isUploading: Boolean = false,
+    val isComplete: Boolean = false,
+    val error: String? = null
+)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -167,21 +192,6 @@ fun ModelItem(
     }
 }
 
-// Google Drive file holder class for uploads
-class GoogleDriveFileHolder {
-    var id: String = ""
-    var name: String = ""
-}
-
-// Progress tracking class
-data class UploadProgressState(
-    val fileName: String = "",
-    val progress: Float = 0f,
-    val isUploading: Boolean = false,
-    val isComplete: Boolean = false,
-    val error: String? = null
-)
-
 @Composable
 fun ViewScreen(navController: NavController, context: Context) {
     // Constants
@@ -192,7 +202,14 @@ fun ViewScreen(navController: NavController, context: Context) {
     val DRIVE_SPACE = "drive"
     val GLB_FOLDER_NAME = "GLB Models"
 
-    var userModels by remember { mutableStateOf(loadUserModels(context)) }
+    // Initialize the model repository
+    LaunchedEffect(Unit) {
+        ModelRepository.initialize(context)
+    }
+
+    // Get the model list from the repository - use mutableState to observe changes
+    val availableModels by remember { mutableStateOf(ModelRepository.availableModels) }
+
     var selectedModels by remember { mutableStateOf<Set<String>>(emptySet()) }
     var selectionMode by remember { mutableStateOf(false) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
@@ -204,14 +221,6 @@ fun ViewScreen(navController: NavController, context: Context) {
     var showUploadProgressDialog by remember { mutableStateOf(false) }
 
     val coroutineScope = rememberCoroutineScope()
-
-    val defaultModels = listOf(
-        "models/Lamborghini.glb",
-        "models/Sofa.glb",
-        "models/Pot.glb",
-        "models/CornerSofa.glb",
-    )
-    val availableModels = defaultModels + userModels
 
     LaunchedEffect(showStatusToast) {
         if (showStatusToast) {
@@ -225,7 +234,7 @@ fun ViewScreen(navController: NavController, context: Context) {
             uri?.let {
                 val savedPath = saveModelFile(context, it)
                 if (savedPath != null) {
-                    userModels = loadUserModels(context)
+                    ModelRepository.updateUserModels(context)
                 }
             }
         }
@@ -288,7 +297,7 @@ fun ViewScreen(navController: NavController, context: Context) {
                 Button(
                     onClick = {
                         deleteModels(context, selectedModels.toList())
-                        userModels = loadUserModels(context)
+                        ModelRepository.updateUserModels(context)
                         selectedModels = emptySet()
                         selectionMode = false
                         showDeleteConfirmation = false
@@ -401,7 +410,7 @@ fun ViewScreen(navController: NavController, context: Context) {
                 },
                 onUploadToDrive = {
                     // In the upload to drive button handler
-                    if (selectedModels.isNotEmpty() && !selectedModels.any { it in defaultModels }) {
+                    if (selectedModels.isNotEmpty() && !selectedModels.any { ModelRepository.isDefaultModel(it) }) {
                         // Check user email and request drive permissions if needed
                         coroutineScope.launch {
                             val email = getUserEmailFromDataStore(context)
@@ -456,7 +465,7 @@ fun ViewScreen(navController: NavController, context: Context) {
                             }
                         }
 
-                    } else if (selectedModels.any { it in defaultModels }) {
+                    } else if (selectedModels.any { ModelRepository.isDefaultModel(it) }) {
                         statusMessage = "Cannot upload default models to Drive"
                         showStatusToast = true
                     } else {
@@ -464,20 +473,20 @@ fun ViewScreen(navController: NavController, context: Context) {
                         showStatusToast = true
                     }
                 },
-                showUploadButton = selectedModels.isNotEmpty() && !selectedModels.any { it in defaultModels }
+                showUploadButton = selectedModels.isNotEmpty() && !selectedModels.any { ModelRepository.isDefaultModel(it) }
             )
 
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
                 modifier = Modifier
                     .weight(1f)
-                    .padding(start = 16.dp, end = 16.dp, top = 16.dp)
-                    .padding(bottom = 120.dp),
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 80.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 items(availableModels) { model ->
-                    val isDefaultModel = model in defaultModels
+                    val isDefaultModel = ModelRepository.isDefaultModel(model)
                     val isSelected = model in selectedModels
                     val thumbnail = getThumbnailForModel(model)
 
@@ -513,7 +522,11 @@ fun ViewScreen(navController: NavController, context: Context) {
                                     if (selectedModels.isEmpty()) selectionMode = false
                                 }
                             } else {
-                                val modelsToSend = listOf(model)
+                                // Select this model and move it to the beginning of the list
+                                ModelRepository.selectModel(model)
+
+                                // Then navigate to AR screen with the models list
+                                val modelsToSend = availableModels.toList()
                                 val json = Gson().toJson(modelsToSend)
                                 val encodedJson = Uri.encode(json)
                                 navController.navigate("ar/$encodedJson")
@@ -532,8 +545,7 @@ fun ViewScreen(navController: NavController, context: Context) {
             contentColor = MaterialTheme.colorScheme.onPrimary,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(bottom = 130.dp,
-                    end = 40.dp)
+                .padding(bottom = 130.dp, end = 40.dp)
         ) {
             Icon(Icons.Default.Add, contentDescription = "Add Model")
         }
@@ -546,50 +558,87 @@ fun TopAppBarContent(
     selectedCount: Int,
     onCancel: () -> Unit,
     onDelete: () -> Unit,
-    onUploadToDrive: () -> Unit,
+    onUploadToDrive: () -> Unit = {},
     showUploadButton: Boolean = false
 ) {
+    val animatedHeight by animateDpAsState(
+        targetValue = if (selectionMode) 64.dp else 60.dp,
+        label = "AppBarHeight"
+    )
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(60.dp)
-            .background(MaterialTheme.colorScheme.primaryContainer)
+            .height(animatedHeight)
+            .background(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shape = RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp)
+            )
+            .shadow(elevation = 4.dp)
     ) {
-        Text(
-            text = if (selectionMode) "$selectedCount Selected" else "Explore Items",
-            fontSize = 24.sp,
-            modifier = Modifier.align(Alignment.Center),
-            color = MaterialTheme.colorScheme.onPrimaryContainer
-        )
-
-        if (selectionMode) {
-            TextButton(
-                onClick = onCancel,
-                modifier = Modifier.align(Alignment.CenterStart)
-            ) {
-                Text("Cancel")
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            if (selectionMode) {
+                IconButton(
+                    onClick = onCancel,
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = "Cancel Selection",
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
             }
 
-            Row(
-                modifier = Modifier.align(Alignment.CenterEnd),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            AnimatedContent(
+                targetState = selectionMode,
+                label = "TitleAnimation"
+            ) { isSelectionMode ->
+                Text(
+                    text = if (isSelectionMode) "$selectedCount Selected" else "Explore Items",
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = if (isSelectionMode) Modifier else Modifier.padding(start = 8.dp)
+                )
+            }
+
+            AnimatedVisibility(
+                visible = selectionMode,
+                enter = fadeIn() + expandHorizontally(),
+                exit = fadeOut() + shrinkHorizontally()
             ) {
-                if (showUploadButton) {
-                    IconButton(onClick = onUploadToDrive) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (showUploadButton) {
+                        IconButton(
+                            onClick = onUploadToDrive,
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Upload,
+                                contentDescription = "Upload to Drive",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.size(40.dp)
+                    ) {
                         Icon(
-                            imageVector = Icons.Default.Upload,
-                            contentDescription = "Upload to Drive",
-                            tint = MaterialTheme.colorScheme.primary
+                            imageVector = Icons.Rounded.Delete,
+                            contentDescription = "Delete Selected",
+                            tint = MaterialTheme.colorScheme.error
                         )
                     }
-                }
-
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Delete",
-                        tint = MaterialTheme.colorScheme.error
-                    )
                 }
             }
         }
@@ -599,14 +648,20 @@ fun TopAppBarContent(
 @Composable
 fun getThumbnailForModel(modelPath: String): String? {
     val context = LocalContext.current
-    try {
-        // Just check if the asset exists
-        context.assets.open(modelPath.replace(".glb", ".png")).close()
-        return modelPath.replace(".glb", ".png")  // Return the asset path
-    } catch (e: Exception) {
-        Log.d("Thumbnails", "Asset thumbnail not found: ${modelPath.replace(".glb", ".png")}")
-        return null
+    var thumbnailPath by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(modelPath) {
+        try {
+            withContext(Dispatchers.IO) {
+                context.assets.open(modelPath.replace(".glb", ".png")).close()
+                thumbnailPath = modelPath.replace(".glb", ".png")
+            }
+        } catch (e: Exception) {
+            Log.d("Thumbnails", "Asset thumbnail not found: ${modelPath.replace(".glb", ".png")}")
+        }
     }
+
+    return thumbnailPath
 }
 
 fun loadUserModels(context: Context): List<String> {
@@ -707,8 +762,6 @@ suspend fun getUserEmailFromDataStore(context: Context): String? {
 }
 
 // Upload selected models to Drive with progress tracking
-// Upload selected models to Drive with progress tracking
-// Upload selected models to Drive with progress tracking
 fun uploadSelectedModelsToDrive(
     context: Context,
     selectedModels: List<String>,
@@ -740,7 +793,7 @@ fun uploadSelectedModelsToDrive(
                             fun updateProgress(progress: Float) {
                                 val fileWeight = 1.0f / totalFiles
                                 val overallProgress = completedFiles.toFloat() / totalFiles + (progress * fileWeight)
-                                coroutineScope.launch(Dispatchers.Main) {
+                                Handler(Looper.getMainLooper()).post {
                                     onProgress(file.name, overallProgress, false)
                                 }
                             }
@@ -769,7 +822,7 @@ fun uploadSelectedModelsToDrive(
                 }
 
                 // Final callback after all uploads complete
-                withContext(Dispatchers.Main) {
+                Handler(Looper.getMainLooper()).post {
                     onProgress("", 1.0f, true)
 
                     if (overallSuccess) {
@@ -779,12 +832,12 @@ fun uploadSelectedModelsToDrive(
                     }
                 }
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
+                Handler(Looper.getMainLooper()).post {
                     onError("Upload failed: ${e.message}")
                 }
             }
         } else {
-            withContext(Dispatchers.Main) {
+            Handler(Looper.getMainLooper()).post {
                 onError("Please sign in on the Settings screen first")
             }
         }
@@ -831,7 +884,6 @@ class ProgressOutputStream(
     }
 }
 
-// Upload file to Drive with progress tracking
 // Upload file to Drive with progress tracking
 private suspend fun uploadFileToDrive(
     context: Context,
@@ -881,7 +933,7 @@ private suspend fun uploadFileToDrive(
                 request.mediaHttpUploader.isDirectUploadEnabled = false
 
                 // Use a simple class to track progress without using coroutines
-                val handler = android.os.Handler(android.os.Looper.getMainLooper())
+                val handler = Handler(Looper.getMainLooper())
 
                 request.mediaHttpUploader.setProgressListener { uploader ->
                     val progress = uploader.progress.toFloat()  // Convert Double to Float
