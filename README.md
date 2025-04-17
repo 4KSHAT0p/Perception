@@ -43,7 +43,7 @@ An Augmented Reality (AR) mobile application that allows users to visualize and 
 
 Clone the repository in via your Android Studio.
 
-If u have any issues then its a skill issue and dont contact us.
+If u have any issues cloning it then its a skill issue and dont contact us.
 
 
 
