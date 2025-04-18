@@ -42,8 +42,7 @@ An Augmented Reality (AR) mobile application that allows users to visualize and 
 ## 🚀 Getting Started
 
 Clone the repository in via your Android Studio.
-
-If u have any issues cloning it then its a skill issue and dont contact us.
+Run it on android version >= 11
 
 
 
