@@ -18,13 +18,18 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -59,6 +64,11 @@ import java.util.*
 import kotlin.math.roundToInt
 import com.google.api.services.drive.model.File as DriveFile
 
+// Custom theme colors to match the screenshot
+private val BlackButton = Color(0xFF000000)
+private val WhiteText = Color(0xFFFFFFFF)
+private val GrayText = Color(0xFF5F5F5F)
+
 // DataStore extension function
 val Context.userPreferencesDataStore: DataStore<Preferences> by preferencesDataStore(
     name = "glb_upload_user"
@@ -92,6 +102,24 @@ fun SettingsScreen(
     // Context and scope
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+
+    // Custom text styles to match screenshot
+    val headlineStyle = TextStyle(
+        fontSize = 24.sp,
+        fontWeight = FontWeight.Bold,
+        textAlign = TextAlign.Center,
+        color = Color.Black
+    )
+
+    val bodyStyle = TextStyle(
+        fontSize = 16.sp,
+        fontWeight = FontWeight.Normal,
+        textAlign = TextAlign.Center,
+        color = GrayText
+    )
+
+    // Button shapes and styling
+    val buttonShape = RoundedCornerShape(24.dp)
 
     // States
     var statusMessage by remember { mutableStateOf("Please sign in to continue") }
@@ -158,13 +186,13 @@ fun SettingsScreen(
         ) {
             Text(
                 text = "Profile",
-                style = MaterialTheme.typography.headlineMedium,
+                style = headlineStyle,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
 
             Text(
                 text = statusMessage,
-                style = MaterialTheme.typography.bodyMedium,
+                style = bodyStyle,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
@@ -185,14 +213,24 @@ fun SettingsScreen(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp),
+                    .padding(vertical = 4.dp)
+                    .height(56.dp),
                 enabled = !isLoggedIn,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                )
+                    containerColor = BlackButton,
+                    contentColor = WhiteText,
+                    disabledContainerColor = Color.Gray,
+                    disabledContentColor = WhiteText
+                ),
+                shape = buttonShape
             ) {
-                Text("Sign In with Google")
+                Text(
+                    "Sign In with Google",
+                    style = TextStyle(
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                )
             }
 
             // Download GLB file
@@ -224,14 +262,24 @@ fun SettingsScreen(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp),
+                    .padding(vertical = 4.dp)
+                    .height(56.dp),
                 enabled = isLoggedIn,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                )
+                    containerColor = BlackButton,
+                    contentColor = WhiteText,
+                    disabledContainerColor = Color.Gray,
+                    disabledContentColor = WhiteText
+                ),
+                shape = buttonShape
             ) {
-                Text("Download GLB from Drive")
+                Text(
+                    "Download GLB from Drive",
+                    style = TextStyle(
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                )
             }
 
             // Sign out button
@@ -245,14 +293,24 @@ fun SettingsScreen(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp),
+                    .padding(vertical = 4.dp)
+                    .height(56.dp),
                 enabled = isLoggedIn,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                )
+                    containerColor = BlackButton,
+                    contentColor = WhiteText,
+                    disabledContainerColor = Color.Gray,
+                    disabledContentColor = WhiteText
+                ),
+                shape = buttonShape
             ) {
-                Text("Sign Out")
+                Text(
+                    "Sign Out",
+                    style = TextStyle(
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                )
             }
         }
 
@@ -266,15 +324,16 @@ fun SettingsScreen(
         ) {
             Text(
                 text = "Dark Mode",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                style = bodyStyle
             )
             Switch(
                 checked = darkMode,
                 onCheckedChange = { onThemeChange(it) },
                 colors = SwitchDefaults.colors(
-                    uncheckedThumbColor = MaterialTheme.colorScheme.secondary,
-                    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                    checkedThumbColor = BlackButton,
+                    uncheckedThumbColor = Color.LightGray,
+                    checkedTrackColor = Color.Gray,
+                    uncheckedTrackColor = Color.LightGray.copy(alpha = 0.5f)
                 )
             )
         }
@@ -284,7 +343,7 @@ fun SettingsScreen(
     if (showFileSelectionDialog && driveGlbFiles.isNotEmpty() && downloadLocation != null) {
         AlertDialog(
             onDismissRequest = { showFileSelectionDialog = false },
-            title = { Text("Select GLB File to Download") },
+            title = { Text("Select GLB File to Download", style = headlineStyle.copy(fontSize = 20.sp)) },
             text = {
                 Column {
                     driveGlbFiles.forEach { file ->
@@ -336,17 +395,29 @@ fun SettingsScreen(
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 4.dp)
+                                .padding(vertical = 4.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = BlackButton,
+                                contentColor = WhiteText
+                            ),
+                            shape = buttonShape
                         ) {
-                            Text(file.name)
+                            Text(file.name, style = TextStyle(fontSize = 14.sp))
                         }
                     }
                 }
             },
             confirmButton = {},
             dismissButton = {
-                Button(onClick = { showFileSelectionDialog = false }) {
-                    Text("Cancel")
+                Button(
+                    onClick = { showFileSelectionDialog = false },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = BlackButton,
+                        contentColor = WhiteText
+                    ),
+                    shape = buttonShape
+                ) {
+                    Text("Cancel", style = TextStyle(fontSize = 14.sp))
                 }
             }
         )
@@ -367,7 +438,7 @@ fun SettingsScreen(
                     .padding(16.dp),
                 shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 8.dp
+                shadowElevation = 8.dp
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -375,14 +446,14 @@ fun SettingsScreen(
                 ) {
                     Text(
                         text = if (downloadProgressState.isComplete) "Download Complete" else "Downloading from Drive",
-                        style = MaterialTheme.typography.titleLarge
+                        style = headlineStyle.copy(fontSize = 20.sp)
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
 
                     Text(
                         text = downloadProgressState.fileName,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = bodyStyle,
                         textAlign = TextAlign.Center
                     )
 
@@ -391,25 +462,22 @@ fun SettingsScreen(
                     LinearProgressIndicator(
                         progress = { downloadProgressState.progress },
                         modifier = Modifier.fillMaxWidth(),
-                        color = if (downloadProgressState.isComplete)
-                            MaterialTheme.colorScheme.primary
-                        else
-                            MaterialTheme.colorScheme.tertiary
+                        color = BlackButton,
+                        trackColor = Color.LightGray
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
                         text = "${(downloadProgressState.progress * 100).roundToInt()}%",
-                        style = MaterialTheme.typography.bodyMedium
+                        style = bodyStyle
                     )
 
                     if (downloadProgressState.error != null) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = downloadProgressState.error!!,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.error
+                            style = bodyStyle.copy(color = Color.Red),
                         )
                     }
 
@@ -419,9 +487,14 @@ fun SettingsScreen(
                             onClick = {
                                 showDownloadProgressDialog = false
                                 downloadProgressState = DownloadProgressState()
-                            }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = BlackButton,
+                                contentColor = WhiteText
+                            ),
+                            shape = buttonShape
                         ) {
-                            Text("Close")
+                            Text("Close", style = TextStyle(fontSize = 14.sp))
                         }
                     }
                 }
@@ -429,7 +502,9 @@ fun SettingsScreen(
         }
     }
 }
+
 // Helper functions
+// All helper functions remain the same
 
 // Check for storage permission
 private fun hasStoragePermission(context: Context): Boolean {
@@ -630,7 +705,6 @@ private suspend fun listGlbFiles(
     }
 }
 
-// Custom OutputStream for tracking download progress
 // Custom OutputStream for tracking download progress
 class ProgressDownloadOutputStream(
     private val outputStream: OutputStream,
