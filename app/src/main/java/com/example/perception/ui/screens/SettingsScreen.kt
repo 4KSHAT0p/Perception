@@ -17,13 +17,20 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -46,6 +53,8 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.documentfile.provider.DocumentFile
+import coil.compose.rememberAsyncImagePainter
+import coil.request.ImageRequest
 import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
@@ -64,15 +73,25 @@ import java.util.*
 import kotlin.math.roundToInt
 import com.google.api.services.drive.model.File as DriveFile
 
-// Custom theme colors to match the screenshot
+// Custom theme colors to match the screenshot - with dark mode support
 private val BlackButton = Color(0xFF000000)
+private val WhiteButton = Color(0xFFFFFFFF)
 private val WhiteText = Color(0xFFFFFFFF)
+private val BlackText = Color(0xFF000000)
 private val GrayText = Color(0xFF5F5F5F)
+private val LightGrayText = Color(0xFFAAAAAA)
 
 // DataStore extension function
 val Context.userPreferencesDataStore: DataStore<Preferences> by preferencesDataStore(
     name = "glb_upload_user"
 )
+
+// DataStore keys
+object PreferencesKeys {
+    val USER_EMAIL = stringPreferencesKey("user_email")
+    val USER_NAME = stringPreferencesKey("user_name")
+    val USER_PROFILE_PIC = stringPreferencesKey("user_profile_pic")
+}
 
 // Download progress state
 data class DownloadProgressState(
@@ -103,19 +122,26 @@ fun SettingsScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    // Custom text styles to match screenshot
+    // Colors based on dark mode
+    val backgroundColor = if (darkMode) Color.Black else Color.White
+    val textColor = if (darkMode) WhiteText else BlackText
+    val buttonColor = if (darkMode) WhiteButton else BlackButton
+    val buttonTextColor = if (darkMode) BlackText else WhiteText
+    val secondaryTextColor = if (darkMode) LightGrayText else GrayText
+
+    // Custom text styles to match screenshot with dark mode support
     val headlineStyle = TextStyle(
         fontSize = 24.sp,
         fontWeight = FontWeight.Bold,
         textAlign = TextAlign.Center,
-        color = Color.Black
+        color = textColor
     )
 
     val bodyStyle = TextStyle(
         fontSize = 16.sp,
         fontWeight = FontWeight.Normal,
         textAlign = TextAlign.Center,
-        color = GrayText
+        color = secondaryTextColor
     )
 
     // Button shapes and styling
@@ -127,6 +153,8 @@ fun SettingsScreen(
     var driveGlbFiles by remember { mutableStateOf<List<DriveFile>>(emptyList()) }
     var showFileSelectionDialog by remember { mutableStateOf(false) }
     var downloadLocation by remember { mutableStateOf<Uri?>(null) }
+    var userEmail by remember { mutableStateOf("") }
+    var userProfilePicUrl by remember { mutableStateOf<String?>(null) }
 
     // Download progress tracking
     var downloadProgressState by remember { mutableStateOf(DownloadProgressState()) }
@@ -135,9 +163,16 @@ fun SettingsScreen(
     // Check login status on first load
     LaunchedEffect(Unit) {
         val email = getUserEmail(context)
+        val profilePic = getData(context, PreferencesKeys.USER_PROFILE_PIC.name)
+
         if (email != null) {
+            userEmail = email
             statusMessage = "Signed in as: $email"
             isLoggedIn = true
+
+            if (profilePic != null) {
+                userProfilePicUrl = profilePic
+            }
         }
     }
 
@@ -177,18 +212,45 @@ fun SettingsScreen(
     }
 
     // UI Layout
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(backgroundColor)
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // Profile header with picture
             Text(
                 text = "Profile",
                 style = headlineStyle,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
+
+            // Profile picture
+            if (isLoggedIn && userProfilePicUrl != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Image(
+                    painter = rememberAsyncImagePainter(
+                        ImageRequest.Builder(context)
+                            .data(userProfilePicUrl)
+                            .crossfade(true)
+                            .build()
+                    ),
+                    contentDescription = "Profile Picture",
+                    modifier = Modifier
+                        .size(100.dp)
+                        .clip(CircleShape)
+                        .border(2.dp, buttonColor, CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
             Text(
                 text = statusMessage,
@@ -201,10 +263,11 @@ fun SettingsScreen(
             Button(
                 onClick = {
                     coroutineScope.launch {
-                        performGoogleLogin(context) { success, message ->
+                        performGoogleLogin(context) { success, message, profileUrl ->
                             if (success) {
                                 isLoggedIn = true
                                 statusMessage = message
+                                userProfilePicUrl = profileUrl
                             } else {
                                 statusMessage = message
                             }
@@ -217,8 +280,8 @@ fun SettingsScreen(
                     .height(56.dp),
                 enabled = !isLoggedIn,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = BlackButton,
-                    contentColor = WhiteText,
+                    containerColor = buttonColor,
+                    contentColor = buttonTextColor,
                     disabledContainerColor = Color.Gray,
                     disabledContentColor = WhiteText
                 ),
@@ -266,8 +329,8 @@ fun SettingsScreen(
                     .height(56.dp),
                 enabled = isLoggedIn,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = BlackButton,
-                    contentColor = WhiteText,
+                    containerColor = buttonColor,
+                    contentColor = buttonTextColor,
                     disabledContainerColor = Color.Gray,
                     disabledContentColor = WhiteText
                 ),
@@ -289,6 +352,7 @@ fun SettingsScreen(
                         performLogout(context)
                         isLoggedIn = false
                         statusMessage = "Signed out"
+                        userProfilePicUrl = null
                     }
                 },
                 modifier = Modifier
@@ -297,8 +361,8 @@ fun SettingsScreen(
                     .height(56.dp),
                 enabled = isLoggedIn,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = BlackButton,
-                    contentColor = WhiteText,
+                    containerColor = buttonColor,
+                    contentColor = buttonTextColor,
                     disabledContainerColor = Color.Gray,
                     disabledContentColor = WhiteText
                 ),
@@ -330,7 +394,7 @@ fun SettingsScreen(
                 checked = darkMode,
                 onCheckedChange = { onThemeChange(it) },
                 colors = SwitchDefaults.colors(
-                    checkedThumbColor = BlackButton,
+                    checkedThumbColor = buttonColor,
                     uncheckedThumbColor = Color.LightGray,
                     checkedTrackColor = Color.Gray,
                     uncheckedTrackColor = Color.LightGray.copy(alpha = 0.5f)
@@ -397,8 +461,8 @@ fun SettingsScreen(
                                 .fillMaxWidth()
                                 .padding(vertical = 4.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = BlackButton,
-                                contentColor = WhiteText
+                                containerColor = buttonColor,
+                                contentColor = buttonTextColor
                             ),
                             shape = buttonShape
                         ) {
@@ -412,8 +476,8 @@ fun SettingsScreen(
                 Button(
                     onClick = { showFileSelectionDialog = false },
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = BlackButton,
-                        contentColor = WhiteText
+                        containerColor = buttonColor,
+                        contentColor = buttonTextColor
                     ),
                     shape = buttonShape
                 ) {
@@ -437,7 +501,7 @@ fun SettingsScreen(
                     .fillMaxWidth()
                     .padding(16.dp),
                 shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.surface,
+                color = if (darkMode) Color.DarkGray else MaterialTheme.colorScheme.surface,
                 shadowElevation = 8.dp
             ) {
                 Column(
@@ -462,7 +526,7 @@ fun SettingsScreen(
                     LinearProgressIndicator(
                         progress = { downloadProgressState.progress },
                         modifier = Modifier.fillMaxWidth(),
-                        color = BlackButton,
+                        color = buttonColor,
                         trackColor = Color.LightGray
                     )
 
@@ -489,8 +553,8 @@ fun SettingsScreen(
                                 downloadProgressState = DownloadProgressState()
                             },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = BlackButton,
-                                contentColor = WhiteText
+                                containerColor = buttonColor,
+                                contentColor = buttonTextColor
                             ),
                             shape = buttonShape
                         ) {
@@ -504,7 +568,7 @@ fun SettingsScreen(
 }
 
 // Helper functions
-// All helper functions remain the same
+// Most helper functions remain the same
 
 // Check for storage permission
 private fun hasStoragePermission(context: Context): Boolean {
@@ -559,13 +623,13 @@ private suspend fun getData(context: Context, key: String): String? {
 
 // Get user email from DataStore
 private suspend fun getUserEmail(context: Context): String? {
-    return getData(context, "user_email")
+    return getData(context, PreferencesKeys.USER_EMAIL.name)
 }
 
 // Google login
 private suspend fun performGoogleLogin(
     context: Context,
-    callback: (Boolean, String) -> Unit
+    callback: (Boolean, String, String?) -> Unit
 ) {
     val rawNonce = UUID.randomUUID().toString()
     val bytes = rawNonce.toByteArray()
@@ -593,7 +657,7 @@ private suspend fun performGoogleLogin(
 
         handleSignInResult(context, result, callback)
     } catch (e: GetCredentialException) {
-        callback(false, "Login failed: ${e.message}")
+        callback(false, "Login failed: ${e.message}", null)
         Log.e("SettingsScreen", "Error getting credential", e)
     }
 }
@@ -602,7 +666,7 @@ private suspend fun performGoogleLogin(
 private suspend fun handleSignInResult(
     context: Context,
     result: GetCredentialResponse,
-    callback: (Boolean, String) -> Unit
+    callback: (Boolean, String, String?) -> Unit
 ) {
     when (val credential = result.credential) {
         is CustomCredential -> {
@@ -612,19 +676,29 @@ private suspend fun handleSignInResult(
                     val email = googleIdTokenCredential.id
                     val name = googleIdTokenCredential.displayName ?: "User"
 
-                    saveData(context, "user_email", email)
-                    callback(true, "Signed in as: $email")
+                    // Get the profile picture URL
+                    // The format is typically: https://lh3.googleusercontent.com/a/[ID]=s96-c
+                    val profilePicUrl = googleIdTokenCredential.profilePictureUri?.toString()
+
+                    saveData(context, PreferencesKeys.USER_EMAIL.name, email)
+                    saveData(context, PreferencesKeys.USER_NAME.name, name)
+
+                    if (profilePicUrl != null) {
+                        saveData(context, PreferencesKeys.USER_PROFILE_PIC.name, profilePicUrl)
+                    }
+
+                    callback(true, "Signed in as: $email", profilePicUrl)
                 } catch (e: Exception) {
-                    callback(false, "Failed to parse credentials")
+                    callback(false, "Failed to parse credentials", null)
                     Log.e("SettingsScreen", "Error parsing Google ID token", e)
                 }
             }
         }
         is PublicKeyCredential -> {
-            callback(false, "Unsupported credential type")
+            callback(false, "Unsupported credential type", null)
         }
         else -> {
-            callback(false, "Unsupported credential type")
+            callback(false, "Unsupported credential type", null)
         }
     }
 }
@@ -636,6 +710,7 @@ private suspend fun performLogout(context: Context) {
     credentialManager.clearCredentialState(ClearCredentialStateRequest())
 }
 
+// Other functions remain the same as before
 // Get GLB files from Drive
 private suspend fun getGlbFilesFromDrive(
     driveService: Drive,

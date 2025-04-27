@@ -88,7 +88,7 @@ dependencies {
 
     implementation(libs.androidx.credentials.v150alpha03)
     implementation(libs.androidx.documentfile)
-
+    implementation(libs.coil.compose)
 
 
 }

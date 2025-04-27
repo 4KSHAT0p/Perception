@@ -3,6 +3,7 @@ activityComposeVersion = "1.10.1"
 agp = "8.9.1"
 arsceneview = "2.2.1"
 coilCompose = "2.5.0"
+coilComposeVersion = "2.4.0"
 credentials = "1.5.0"
 credentialsVersion = "1.5.0"
 datastorePreferences = "1.1.4"
@@ -46,6 +47,7 @@ androidx-material3 = { module = "androidx.compose.material3:material3", version.
 androidx-runtime = { module = "androidx.compose.runtime:runtime", version.ref = "runtime" }
 androidx-ui = { module = "androidx.compose.ui:ui", version.ref = "ui" }
 androidx-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview", version.ref = "ui" }
+coil-compose-v240 = { module = "io.coil-kt:coil-compose", version.ref = "coilComposeVersion" }
 google-api-client-android = { module = "com.google.api-client:google-api-client-android", version.ref = "googleApiClientAndroid" }
 google-api-services-drive = { module = "com.google.apis:google-api-services-drive", version.ref = "googleApiServicesDrive" }
 googleid = { module = "com.google.android.libraries.identity.googleid:googleid", version.ref = "googleid" }
