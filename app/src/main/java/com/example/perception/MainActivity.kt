@@ -7,19 +7,8 @@ import androidx.activity.compose.setContent
 import androidx.compose.material3.Scaffold
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.rememberNavController
-//import com.example.perception.ui.navigation.ARScreen
-//import com.example.perception.ui.navigation.HomeScreen
-//import com.example.perception.ui.navigation.ViewScreen
-//import com.example.perception.ui.screens.ARScreen
-//import com.example.perception.ui.screens.HomeScreen
-
-//package com.example.myapplication
-
-//import android.os.Bundle
-//import androidx.activity.ComponentActivity
 import androidx.compose.runtime.*
 import androidx.navigation.compose.currentBackStackEntryAsState
-//import androidx.compose.ui.Modifier
 import com.example.perception.ui.navigation.BottomNavBar
 import com.example.perception.ui.navigation.NavigationGraph
 

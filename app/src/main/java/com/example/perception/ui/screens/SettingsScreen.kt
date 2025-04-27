@@ -1,7 +1,5 @@
 package com.example.perception.ui.screens
 
-import android.os.Handler
-import android.os.Looper
 import android.Manifest
 import android.accounts.Account
 import android.app.Activity
@@ -11,27 +9,58 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -40,8 +69,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.credentials.CredentialManager
 import androidx.credentials.ClearCredentialStateRequest
+import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.GetCredentialResponse
@@ -55,7 +84,6 @@ import androidx.datastore.preferences.preferencesDataStore
 import androidx.documentfile.provider.DocumentFile
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
-import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential
@@ -63,13 +91,17 @@ import com.google.api.client.http.javanet.NetHttpTransport
 import com.google.api.client.json.gson.GsonFactory
 import com.google.api.services.drive.Drive
 import com.google.api.services.drive.DriveScopes
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.io.OutputStream
 import java.security.MessageDigest
-import java.util.*
+import java.util.Collections
+import java.util.UUID
 import kotlin.math.roundToInt
 import com.google.api.services.drive.model.File as DriveFile
 
@@ -108,19 +140,41 @@ fun SettingsScreen(
     onThemeChange: (Boolean) -> Unit
 ) {
     // Constants
-    val TAG = "SettingsScreen"
     val APP_NAME = "GLB Uploader"
     val GLB_MIME_TYPE = "model/gltf-binary"
-    val FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
-    val ROOT_FOLDER = "root"
     val DRIVE_SPACE = "drive"
-    val GLB_FOLDER_NAME = "GLB Models"
-    val EMAIL_KEY = "user_email"
     val FIELDS = "nextPageToken, files(id, name, size, modifiedTime)"
 
     // Context and scope
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val scrollState = rememberScrollState()
+    LocalDensity.current
+    val view = LocalView.current
+
+    // System insets state
+    val statusBarHeight by remember { mutableStateOf(0.dp) }
+    val navigationBarHeight by remember { mutableStateOf(0.dp) }
+
+    // Calculate insets when view is attached and laid out
+    DisposableEffect(view) {
+//        val windowInsetsController = view.doOnAttach {
+//            WindowCompat.setDecorFitsSystemWindows(context as Activity, false)
+//        }
+//
+//        val layoutListener = view.doOnLayout {
+//            val windowInsets = WindowInsetsCompat.toWindowInsetsCompat(view.rootWindowInsets)
+//            val statusBarInsets = windowInsets.getInsets(WindowInsetsCompat.Type.statusBars())
+//            val navigationBarInsets = windowInsets.getInsets(WindowInsetsCompat.Type.navigationBars())
+//
+//            statusBarHeight = with(density) { statusBarInsets.top.toDp() }
+//            navigationBarHeight = with(density) { navigationBarInsets.bottom.toDp() }
+//        }
+
+        onDispose {
+            // Cleanup if needed
+        }
+    }
 
     // Colors based on dark mode
     val backgroundColor = if (darkMode) Color.Black else Color.White
@@ -205,24 +259,36 @@ fun SettingsScreen(
     }
 
     // Google sign-in
-    val signInLauncher = rememberLauncherForActivityResult(
+    rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
+    ) { _ ->
         // Handle sign-in result if needed
     }
 
-    // UI Layout
+    // UI Layout with proper insets handling
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(backgroundColor)
+            // Apply padding for the status bar to avoid content being cut by notch
+            .padding(top = statusBarHeight)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp),
+                .padding(
+                    start = 16.dp,
+                    end = 16.dp,
+                    // Add padding at the bottom to account for navigation bar
+                    bottom = navigationBarHeight + 16.dp
+                )
+                // Make the content scrollable to ensure visibility on all screen sizes
+                .verticalScroll(scrollState),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // Add extra padding at the top for better visual spacing
+            Spacer(modifier = Modifier.height(8.dp))
+
             // Profile header with picture
             Text(
                 text = "Profile",
@@ -310,7 +376,7 @@ fun SettingsScreen(
                                 GLB_MIME_TYPE,
                                 DRIVE_SPACE,
                                 FIELDS
-                            ) { success, message, files ->
+                            ) { success, _, files ->
                                 if (success && files.isNotEmpty()) {
                                     driveGlbFiles = files
                                     directoryPicker.launch(null)
@@ -376,30 +442,51 @@ fun SettingsScreen(
                     )
                 )
             }
-        }
 
-        // Dark Mode Toggle - positioned just above where the profile button would be
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(bottom = 80.dp, end = 16.dp),  // Positioned above where a bottom navigation item would be
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                text = "Dark Mode",
-                style = bodyStyle
-            )
-            Switch(
-                checked = darkMode,
-                onCheckedChange = { onThemeChange(it) },
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = buttonColor,
-                    uncheckedThumbColor = Color.LightGray,
-                    checkedTrackColor = Color.Gray,
-                    uncheckedTrackColor = Color.LightGray.copy(alpha = 0.5f)
+            // Add dark mode toggle inside the main scrollable column
+            // This ensures it's always accessible even on devices with notches
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // Dark Mode Toggle as a card for better visibility
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                shape = buttonShape,
+                colors = CardDefaults.cardColors(
+                    containerColor = if (darkMode) Color(0xFF212121) else Color(0xFFEEEEEE)
                 )
-            )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Dark Mode",
+                        style = bodyStyle.copy(
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    )
+                    Switch(
+                        checked = darkMode,
+                        onCheckedChange = { onThemeChange(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = buttonColor,
+                            uncheckedThumbColor = Color.LightGray,
+                            checkedTrackColor = Color.Gray,
+                            uncheckedTrackColor = Color.LightGray.copy(alpha = 0.5f)
+                        )
+                    )
+                }
+            }
+
+            // Add extra space at the bottom to ensure content is not cut off
+            // and everything is accessible with scrolling
+            Spacer(modifier = Modifier.height(100.dp))
         }
     }
 
@@ -570,18 +657,6 @@ fun SettingsScreen(
 // Helper functions
 // Most helper functions remain the same
 
-// Check for storage permission
-private fun hasStoragePermission(context: Context): Boolean {
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        Environment.isExternalStorageManager()
-    } else {
-        ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.WRITE_EXTERNAL_STORAGE
-        ) == PackageManager.PERMISSION_GRANTED
-    }
-}
-
 // Request storage permission
 private fun requestStoragePermission(context: Context, launcher: ActivityResultLauncher<Intent>) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -710,7 +785,6 @@ private suspend fun performLogout(context: Context) {
     credentialManager.clearCredentialState(ClearCredentialStateRequest())
 }
 
-// Other functions remain the same as before
 // Get GLB files from Drive
 private suspend fun getGlbFilesFromDrive(
     driveService: Drive,

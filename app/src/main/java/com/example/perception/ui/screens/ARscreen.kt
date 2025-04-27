@@ -14,7 +14,6 @@ import android.util.Log
 import android.view.MotionEvent
 import android.view.PixelCopy
 import android.view.SurfaceView
-import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -59,7 +58,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -104,6 +102,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
+import android.view.View
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 
 @Composable
 fun ARScreen(
@@ -133,9 +134,47 @@ fun ARScreen(
     val frame = remember { mutableStateOf<Frame?>(null) }
     var captureBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
-    // Clean up resources when leaving the screen
+    // Hide system bars (status and navigation)
+    val activity = context as? android.app.Activity
+
     DisposableEffect(Unit) {
+        activity?.let {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                // For Android 11+ (API 30+)
+                it.window.insetsController?.let { controller ->
+                    // Hide both the status bar and the navigation bar
+                    controller.hide(WindowInsets.Type.systemBars())
+                    controller.systemBarsBehavior =
+                        WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                }
+            } else {
+                // For Android 10 and below
+                @Suppress("DEPRECATION")
+                it.window.decorView.systemUiVisibility = (
+                        View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                                or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                                or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                                or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                                or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                                or View.SYSTEM_UI_FLAG_FULLSCREEN
+                        )
+            }
+        }
+
         onDispose {
+            // Show system bars again when leaving the AR screen
+            activity?.let {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    // For Android 11+ (API 30+)
+                    it.window.insetsController?.show(WindowInsets.Type.systemBars())
+                } else {
+                    // For Android 10 and below
+                    @Suppress("DEPRECATION")
+                    it.window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+                }
+            }
+
+            // Original cleanup
             childNodes.clear()
         }
     }
@@ -185,8 +224,6 @@ fun ARScreen(
 
     val captureScreen = {
         val currentView = arViewRef.value
-        val activity = context as? android.app.Activity
-
         if (currentView != null && activity != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val surfaceView = findARSurfaceView(currentView)
             val bitmap = createBitmap(currentView.width, currentView.height)
