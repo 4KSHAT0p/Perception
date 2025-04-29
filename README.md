@@ -20,7 +20,7 @@ An Augmented Reality (AR) mobile application that allows users to visualize and 
 
 #### 📏 Scale & Fit Preview — See how furniture fits in real space with proper scaling.
 
-#### 📸 Screenshot Capture — Take photos of your designed space to share or review later.
+#### 📸 AR Scene Capture — Take photos of your designed space to share or review later.
 
 <br>
 
