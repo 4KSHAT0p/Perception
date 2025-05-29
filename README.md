@@ -14,6 +14,8 @@ Visit [this](https://ar-code.com/blog/ar-3d-models) to enhance the experience of
 
 ## ✨ Features
 
+#### Truly Offline application — This app is completely offline to use and doesn't require internet at all.
+
 #### 📱 Real-Time AR Visualization — Place, move, and rotate 3D furniture models in your environment.
 
 #### 🪑 Preloaded Furniture Catalog — Choose from a set of common items like chairs, tables, and sofas.
