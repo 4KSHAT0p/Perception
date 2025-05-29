@@ -44,7 +44,9 @@ An Augmented Reality (AR) mobile application that allows users to visualize and 
 Clone the repository in via your Android Studio.
 Run it on android version >= 11
 
+## Our first release is out ! Go check it out..
 
+Visit [this](https://ar-code.com/blog/ar-3d-models) to enhance the experience of our app.
 
 ## 🙌 Acknowledgements
 
