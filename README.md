@@ -1,3 +1,8 @@
+# Our first release is out ! Go check it out..
+
+Visit [this](https://ar-code.com/blog/ar-3d-models) to enhance the experience of our app.
+
+
 #### The below timeline outlines a roadmap for developing *Perception*, an augmented reality application aimed at simplifying the interior design process. The app will leverage the power of AR technology to empower users to visualize furniture placement, experiment with color palettes, and make informed design decisions in their own space. 
 
 ![ganttt](https://github.com/user-attachments/assets/0ce5bac2-8eb9-4041-8b01-a75f37791427)
@@ -44,9 +49,6 @@ An Augmented Reality (AR) mobile application that allows users to visualize and 
 Clone the repository in via your Android Studio.
 Run it on android version >= 11
 
-## Our first release is out ! Go check it out..
-
-Visit [this](https://ar-code.com/blog/ar-3d-models) to enhance the experience of our app.
 
 ## 🙌 Acknowledgements
 
