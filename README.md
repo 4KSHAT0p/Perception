@@ -8,7 +8,7 @@
 
 An Augmented Reality (AR) mobile application that allows users to visualize and place virtual furniture in real-world environments using their smartphone camera. Built using ***Kotlin*** and ***ARCore***, this app is designed to help users make smarter interior design decisions by experiencing how furniture fits and looks in their space — before buying.
 
-# Our first release is out ! Go check it out..
+# Our first release is out! Go check it out..
 
 Visit [this](https://ar-code.com/blog/ar-3d-models) to enhance the experience of our app.
 
